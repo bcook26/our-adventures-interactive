@@ -18,8 +18,7 @@ st.markdown(CUSTOM_CARD_STYLING, unsafe_allow_html=True)
 
 st.title("🌍 Our Adventures")
 
-# Load data early to compute stats
-@st.cache_data
+# Load data (not cached since we need to reload after edits)
 def load_data() -> pd.DataFrame:
     df = pd.read_csv(
         "trips.csv",
@@ -37,6 +36,12 @@ def load_data() -> pd.DataFrame:
 
     return df
 
+# Function to save updated description
+def save_description(photo: str, new_description: str):
+    df = pd.read_csv("trips.csv", skipinitialspace=True)
+    df["photo"] = df["photo"].str.strip()
+    df.loc[df["photo"] == photo, "description"] = new_description
+    df.to_csv("trips.csv", index=False)
 
 df = load_data()
 
@@ -74,7 +79,8 @@ filtered_df = df.copy()
 if search:
     mask = (
         df["title"].str.contains(search, case=False, na=False, regex=True) |
-        df["location"].str.contains(search, case=False, na=False, regex=True)
+        df["location"].str.contains(search, case=False, na=False, regex=True) | 
+        df["description"].str.contains(search, case=False, na=False, regex=True)
     )
     filtered_df = df[mask]
 
@@ -96,7 +102,7 @@ m = folium.Map(
 )
 
 # Add Markers for each visited location
-for _, row in df.iterrows():
+for _, row in sorted_df.iterrows():
     html = f"""
     <h3>{row['title']}</h3>
     <p><b>Date:</b> {row['date']}</p>
@@ -148,12 +154,24 @@ with details_col:
                         st.subheader(f"💕 {row['title']}")
                         st.write(f"**📍 Location:** {row['location']}")
                         st.write(f"**📅 Date:** {row['date']}")
-                        st.write(f"**📝 Description:** {row['description']}")
+                        
+                        # Editable description field
+                        new_desc = st.text_area(
+                            "📝 Description",
+                            value=row['description'],
+                            key=f"desc_map_{row['photo']}_{i}"
+                        )
+                        if new_desc != row['description']:
+                            if st.button("💾 Save", key=f"save_map_{row['photo']}_{i}"):
+                                save_description(row['photo'], new_desc)
+                                st.success("Description saved!")
+                                st.rerun()
+                        
                         st.markdown('</div>', unsafe_allow_html=True)
 
                         image_path = Path("photos/updated_pics") / row["photo"]
                         if image_path.exists():
-                            st.image(image_path, use_container_width=True)
+                            st.image(image_path, width='content')
                         else:
                             st.warning(f"Image not found: {row['photo']}")
             else:
@@ -162,12 +180,24 @@ with details_col:
                 st.subheader(f"💕 {row['title']}")
                 st.write(f"**📍 Location:** {row['location']}")
                 st.write(f"**📅 Date:** {row['date']}")
-                st.write(f"**📝 Description:** {row['description']}")
+                
+                # Editable description field
+                new_desc = st.text_area(
+                    "📝 Description",
+                    value=row['description'],
+                    key=f"desc_map_{row['photo']}"
+                )
+                if new_desc != row['description']:
+                    if st.button("💾 Save", key=f"save_map_{row['photo']}"):
+                        save_description(row['photo'], new_desc)
+                        st.success("Description saved!")
+                        st.rerun()
+                
                 st.markdown('</div>', unsafe_allow_html=True)
 
                 image_path = Path("photos/updated_pics") / row["photo"]
                 if image_path.exists():
-                    st.image(image_path, use_container_width=True)
+                    st.image(image_path, width='content')
                 else:
                     st.warning(f"Image not found: {row['photo']}")
         else:
@@ -177,8 +207,56 @@ with details_col:
         st.info("Click a marker on the map to see trip details and photo.")
         placeholder_path = Path("photos/updated_pics") / PLACEHOLDER_IMAGE_PATH
         if placeholder_path.exists():
-            st.image(placeholder_path, caption="Our Special Day ❤️", use_container_width=True)
+            st.image(placeholder_path, caption="Our Special Day ❤️", width='content')
 
-# Collapsible Data Table
+# 2. Collapsible Data Table at the bottom
 with st.expander("📋 Show Data Table"):
-    st.dataframe(sorted_df, use_container_width=True)
+    # Add row selection to the dataframe
+    st.markdown("**Click a row to view its photo:**")
+    
+    # Create a selectable dataframe
+    selected_row = st.dataframe(
+        sorted_df[["title", "location", "date", "description", "photo"]],
+        width='stretch',
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row"
+    )
+    
+    # Show image if a row is selected
+    if selected_row and selected_row.selection and selected_row.selection.rows:
+        row_idx = selected_row.selection.rows[0]
+        selected_trip = sorted_df.iloc[row_idx]
+        
+        st.markdown("---")
+        st.markdown(f"### 📸 {selected_trip['title']}")
+        
+        # Create columns for image and details
+        img_col, info_col = st.columns([1, 1])
+        
+        with img_col:
+            photo_filename = selected_trip["photo"].strip() if isinstance(selected_trip["photo"], str) else None
+            if photo_filename:
+                image_path = Path(f"photos/updated_pics/{photo_filename}")
+                if image_path.exists():
+                    st.image(str(image_path), width='content')
+                else:
+                    st.warning(f"Image not found: {photo_filename}")
+            else:
+                st.info("No photo available for this trip")
+        
+        with info_col:
+            st.markdown(f"**📍 Location:** {selected_trip['location']}")
+            st.markdown(f"**📅 Date:** {selected_trip['date']}")
+            
+            # Editable description field for data table selection
+            new_desc = st.text_area(
+                "📝 Description",
+                value=selected_trip['description'],
+                key=f"desc_table_{selected_trip['photo']}"
+            )
+            if new_desc != selected_trip['description']:
+                if st.button("💾 Save", key=f"save_table_{selected_trip['photo']}"):
+                    save_description(selected_trip['photo'], new_desc)
+                    st.success("Description saved!")
+                    st.rerun()
